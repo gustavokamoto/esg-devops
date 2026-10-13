@@ -1,0 +1,110 @@
+name: Voa Aguia - CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build e testes (Java 17 + MongoDB)
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout do codigo
+        uses: actions/checkout@v4
+      - name: Preparar Java 17 e cache Maven
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build e testes reais com MongoDB
+        run: bash ./mvnw --batch-mode --no-transfer-progress clean verify
+      - name: Build da imagem Docker
+        run: docker build --tag voaaguia:${{ github.sha }} .
+      - name: Publicar relatórios de testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorios-testes
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  staging:
+    name: Deploy automatico - staging
+    needs: build-test
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Empacotar fonte para o servidor
+        run: tar --exclude='.git' --exclude='.env' --exclude='target' --exclude='*.zip' -czf "$RUNNER_TEMP/deploy.tar.gz" .
+      - name: Configurar acesso SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/voaaguia_deploy_key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 700 "$HOME/.ssh"
+          chmod 600 "$HOME/.ssh/voaaguia_deploy_key" "$HOME/.ssh/known_hosts"
+      - name: Implantar no servidor de staging
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+        run: bash scripts/deploy-ssh.sh "$RUNNER_TEMP/deploy.tar.gz"
+
+  production:
+    name: Deploy automatico - producao (apos staging)
+    needs: staging
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Empacotar fonte para o servidor
+        run: tar --exclude='.git' --exclude='.env' --exclude='target' --exclude='*.zip' -czf "$RUNNER_TEMP/deploy.tar.gz" .
+      - name: Configurar acesso SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/voaaguia_deploy_key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 700 "$HOME/.ssh"
+          chmod 600 "$HOME/.ssh/voaaguia_deploy_key" "$HOME/.ssh/known_hosts"
+      - name: Implantar no servidor de producao
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+        run: bash scripts/deploy-ssh.sh "$RUNNER_TEMP/deploy.tar.gz"

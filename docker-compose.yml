@@ -1,0 +1,44 @@
+# Um unico Compose reutilizado em local, staging e producao.
+# Diferencie ambientes definindo COMPOSE_PROJECT_NAME, HOST_PORT e MONGO_DATABASE no .env de cada um.
+name: ${COMPOSE_PROJECT_NAME:-voaaguia-local}
+services:
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - voaaguia_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${HOST_BIND_IP:-127.0.0.1}:${HOST_PORT:-8080}:8080"
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/${MONGO_DATABASE:-voaaguia_sprint2}
+      JWT_SECRET: ${JWT_SECRET:?Configure JWT_SECRET no arquivo .env}
+      SEED_ENABLED: ${SEED_ENABLED:-false}
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - voaaguia_network
+
+volumes:
+  mongo_data:
+
+networks:
+  voaaguia_network:
+    driver: bridge

@@ -1,0 +1,16 @@
+# Segredos e configuracoes privadas
+.env
+.env.*
+!.env.example
+# Build Maven
+/target/
+*.log
+# IDE
+.idea/
+.vscode/
+*.iml
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+# Pacotes e evidencias locais
+*.zip
