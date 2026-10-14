@@ -1,15 +1,12 @@
-# Passo a passo — Voa Águia (Windows + GitHub Actions + servidor Linux)
+# Passo a passo — Voa Águia (Windows, GitHub Actions, Render e Atlas)
 
-Este tutorial descreve o caminho completo para comprovar os requisitos do desafio sem inventar execuções. **A pasta de projeto enviada contém apenas o backend**; se o seu trabalho acadêmico exige também o aplicativo Android/frontend de desafios anteriores, inclua-o no arquivo final.
+O projeto usa Docker Compose localmente e dois serviços Docker no Render para staging e produção acadêmica. Este roteiro reproduz o fluxo do [PDF técnico](Voa_Aguia_Relatorio_Tecnico_DevOps_Final.pdf) e do [catálogo de evidências](EVIDENCIAS.md). A identificação dos quatro integrantes e a relação com ESG estão no [README](../README.md).
 
-## 1. Instale o necessário no seu PC Windows
+## 1. Conferir o projeto e os requisitos
 
-- Docker Desktop para Windows: https://docs.docker.com/desktop/setup/install/windows-install/ (inicie o aplicativo e mantenha o motor Docker rodando).
-- Git para Windows: https://git-scm.com/downloads/win.
-- Conta no GitHub: https://github.com/.
-- Java 17 (opcional para teste local; no GitHub Actions já é provisionado): https://adoptium.net/.
+Na raiz, devem existir `pom.xml`, `src`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `.github/workflows`, `scripts` e `docs`. Este repositório contém o backend; acrescente outros módulos ao pacote somente se o enunciado da atividade os exigir.
 
-Verifique no PowerShell:
+No Windows, tenha Docker Desktop iniciado e Git. Java 17 é necessário para executar Maven diretamente no host; os builds Docker e do GitHub Actions já usam Java 17.
 
 ```powershell
 docker --version
@@ -17,18 +14,16 @@ docker compose version
 git --version
 ```
 
-## 2. Coloque o projeto em uma pasta no seu PC
+## 2. Configurar o ambiente local
 
-Extraia o pacote `VoaAguia-DevOps.zip`. Abra PowerShell na pasta **VoaAguia-DevOps**, que deve conter `pom.xml`, `src`, `Dockerfile`, `docker-compose.yml`, `.github`, `docs` e `.env.example`. No Windows Explorer, habilite **Exibir > Itens ocultos** para enxergar pastas com ponto.
-
-## 3. Configure segredos locais
+Crie `.env` somente se ainda não existir, para preservar a configuração já utilizada:
 
 ```powershell
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 notepad .env
 ```
 
-No `.env`, substitua `JWT_SECRET` por um segredo único de pelo menos 32 bytes. Para gerar um exemplo aleatório no PowerShell (sem Python):
+Defina `JWT_SECRET` com pelo menos 32 bytes aleatórios. Para gerar um valor:
 
 ```powershell
 $bytes = New-Object byte[] 48
@@ -38,219 +33,100 @@ $rng.Dispose()
 [Convert]::ToBase64String($bytes)
 ```
 
-Cole a saída na linha `JWT_SECRET=` do `.env`. Para contas de demonstração, defina `SEED_ENABLED=true` e informe uma senha aleatória de 12+ caracteres em `SEED_PASSWORD=`. Se não precisar desses usuários, deixe `SEED_ENABLED=false`. `GEMINI_API_KEY` é opcional: sem ela, apenas as funções de IA não respondem normalmente.
+Para demonstração local, `SEED_ENABLED=true` exige `SEED_PASSWORD` com 12 ou mais caracteres. Sem seed, use o cadastro da API para criar um operador. A IA é opcional e exige chave válida e modelo configurado. O `.env` é ignorado pelo Git e deve ficar fora da entrega.
 
-**Nunca inclua o arquivo `.env` no GitHub ou no ZIP da entrega.**
-
-## 4. Suba o backend e MongoDB via Docker
-
-Execute na raiz do projeto:
+## 3. Executar API e MongoDB locais
 
 ```powershell
-docker compose config
+docker compose config --quiet
 docker compose up -d --build
 docker compose ps
 docker compose logs --tail=100 api
+Invoke-RestMethod http://localhost:8080/healthz
 ```
 
-Se aparecerem os dois serviços, abra no navegador:
+Abra `http://localhost:8080/swagger-ui/index.html`. Se a porta estiver ocupada, altere `HOST_PORT` no `.env`, suba novamente e ajuste a URL. As imagens existentes são [containers locais](evidencias/containerLocal.png) e [Swagger local](evidencias/swaggerLocal.png), ambas referentes à porta 8080.
 
-- http://localhost:8080/swagger-ui/index.html
-- http://localhost:8080/v3/api-docs
+Para parar sem apagar os dados, use `docker compose down`. Evite `down -v` se pretende manter o volume MongoDB.
 
-Tire os prints do `docker compose ps` e da página Swagger. Se a porta 8080 estiver ocupada, mude `HOST_PORT=18080` no `.env`, reexecute `docker compose up -d --build`, e use `http://localhost:18080/`.
+## 4. Executar os testes
 
-**Para parar sem apagar o banco**: `docker compose down`. Não rode `docker compose down -v` se quiser manter os dados.
-
-## 5. Faça os testes
-
-O GitHub Actions executará a suíte no CI. Se quiser validar no PC e tiver Java 17, inicie um MongoDB para os testes (a instância do Compose não publica sua porta 27017):
+O Compose não publica MongoDB em 27017. Para Maven no host, use uma instância nessa porta:
 
 ```powershell
-docker run -d --name voaaguia-mongo-teste -p 27017:27017 mongo:7.0
-.\mvnw.cmd clean verify
+docker run -d --name voaaguia-mongo-teste -p 127.0.0.1:27017:27017 mongo:7.0
+docker exec voaaguia-mongo-teste mongosh --quiet --eval "db.adminCommand('ping').ok"
+.\mvnw.cmd --batch-mode --no-transfer-progress clean verify
 docker stop voaaguia-mongo-teste
-docker rm voaaguia-mongo-teste
+docker rm --volumes voaaguia-mongo-teste
 ```
 
-Aguarde o MongoDB ficar pronto antes do Maven (`docker logs voaaguia-mongo-teste`). Se já houver MongoDB na porta 27017, não inicie outro container. O esperado é `BUILD SUCCESS`; caso contrário, anote o erro e corrija-o antes de seguir.
+Aguarde o `ping` retornar `1` antes dos testes. Se já houver MongoDB na porta 27017, reutilize-o. A suíte de integração cria um banco de testes aleatório e o remove ao final; a auditoria usa H2. Confira `BUILD SUCCESS` e `target/surefire-reports`. Os comandos de remoção acima destinam-se somente ao container dedicado de testes e aos seus volumes anônimos.
 
-## 6. Prepare um servidor Linux para os deploys
+## 5. Configurar Atlas e Render
 
-**É necessário um computador ou VPS Linux persistente**, com acesso por SSH a partir do GitHub Actions e com Docker Engine/Compose instalados. O GitHub-hosted runner não é servidor permanente de staging/produção. Instruções oficiais do Docker Engine no Ubuntu: https://docs.docker.com/engine/install/ubuntu/.
+Siga [GUIA_RENDER_ATLAS.md](GUIA_RENDER_ATLAS.md):
 
-Acesse seu servidor (substitua com seu login/IP):
+1. Configure bancos e usuários separados para staging e produção no Atlas.
+2. Autorize os endereços de saída dos serviços Render na lista de acesso Atlas.
+3. Configure dois Web Services Docker: `develop` para staging e `main` para produção.
+4. Em cada serviço, informe `MONGODB_URI`, `JWT_SECRET` próprio e `SEED_ENABLED=false`.
+5. Configure Health Check Path `/healthz` e Auto-Deploy `Off`.
+6. Registre os IDs dos serviços e as URLs públicas para o CI.
 
-```bash
-ssh USUARIO@IP_DO_SERVIDOR
-```
+O Render executa a imagem da API, com banco externo Atlas. A aplicação aceita a variável `PORT`. As URLs dos serviços são públicas e HTTPS. Os bancos `voaaguia_staging` e `voaaguia_production` estão registrados na página 10 do PDF.
 
-Após instalar Docker Engine e Docker Compose plugin, confira `docker --version` e `docker compose version`. Garanta que o **usuário SSH que fará o deploy** tenha permissão para executar `docker compose`. Adicionar usuário ao grupo `docker` concede privilégios equivalentes a administrador: use conta restrita e proteja sua chave.
+No Render Free, a primeira requisição após inatividade pode aguardar a inicialização do serviço. Isso é uma limitação do ambiente acadêmico descrita no [guia de infraestrutura](GUIA_RENDER_ATLAS.md#limitações-da-infraestrutura-acadêmica).
 
-No Linux, crie as pastas (supondo que o próprio usuário acessado fará o deploy):
+## 6. Configurar GitHub
 
-```bash
-sudo mkdir -p /opt/voaaguia/staging /opt/voaaguia/production
-sudo chown -R "$USER:$USER" /opt/voaaguia
-```
+Siga [COMO_CONFIGURAR_GITHUB.md](COMO_CONFIGURAR_GITHUB.md). Cadastre `RENDER_API_KEY` como repository secret. Crie os environments `staging` e `production`; em cada um, configure as Variables `RENDER_SERVICE_ID` e `RENDER_PUBLIC_URL`.
 
-Crie arquivos **separados** de variáveis, diretamente no servidor:
+Mantenha o remote já configurado se o projeto estiver no GitHub. Para a promoção:
 
-`/opt/voaaguia/staging/.env`:
+1. Envie mudanças em `develop`: o Actions valida o código e publica staging.
+2. Verifique staging e abra um PR de `develop` para `main`: o PR executa CI.
+3. Faça merge em `main`: uma nova execução valida e publica produção.
 
-```dotenv
-COMPOSE_PROJECT_NAME=voaaguia-staging
-HOST_BIND_IP=127.0.0.1
-HOST_PORT=8081
-MONGO_DATABASE=voaaguia_staging
-JWT_SECRET=COLE_UM_SEGREDO_ALEATORIO_DE_NO_MINIMO_32_BYTES
-SEED_ENABLED=true
-SEED_PASSWORD=ESCOLHA_UMA_SENHA_FORTE_COM_PELO_MENOS_12_CARACTERES
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
-```
+Também é possível usar **Actions > Run workflow**, escolhendo a branch do ambiente. Em PR não há deploy. O workflow não publica staging e produção juntos em um push em `main`.
 
-`/opt/voaaguia/production/.env`:
+## 7. Conferir publicação e saúde
 
-```dotenv
-COMPOSE_PROJECT_NAME=voaaguia-production
-HOST_BIND_IP=127.0.0.1
-HOST_PORT=8082
-MONGO_DATABASE=voaaguia_production
-JWT_SECRET=COLE_OUTRO_SEGREDO_ALEATORIO_DE_NO_MINIMO_32_BYTES
-SEED_ENABLED=false
-SEED_PASSWORD=
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
-```
-
-Gere dois segredos distintos, por exemplo no servidor com `openssl rand -base64 48`. Cole os valores nos arquivos usando `nano /opt/voaaguia/staging/.env` e `nano /opt/voaaguia/production/.env`. Restringa o acesso: `chmod 600 /opt/voaaguia/{staging,production}/.env`.
-
-As portas 8081/8082 ficam **fechadas para acesso externo** por padrão, o que é intencional. Para apresentar os sites, use o túnel SSH indicado no passo 10.
-
-## 7. Crie uma chave SSH de deploy dedicada
-
-No PowerShell do seu PC, crie uma chave dedicada (um procedimento por servidor/conta, não reuso de chave pessoal):
+Após o job do ambiente terminar, consulte:
 
 ```powershell
-ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\voaaguia_deploy"
+Invoke-RestMethod https://esg-devops-staging.onrender.com/healthz
+Invoke-RestMethod https://esg-devops-production.onrender.com/healthz
 ```
 
-Quando o comando perguntar por uma senha (*passphrase*) para a chave, pressione Enter para deixá-la sem senha, pois este exemplo de workflow não tem agente SSH para desbloqueá-la. Use a chave apenas para este deploy, proteja o arquivo privado e limite o acesso da conta remota.
+Abra:
 
-Cadastre o conteúdo do arquivo `voaaguia_deploy.pub` no `~/.ssh/authorized_keys` do **usuário de deploy** no servidor. Você pode fazer isso copiando a linha pública e editando o arquivo no Linux, configurando permissões `700` para `~/.ssh` e `600` para `~/.ssh/authorized_keys`.
+- [Swagger staging](https://esg-devops-staging.onrender.com/swagger-ui/index.html).
+- [Swagger produção](https://esg-devops-production.onrender.com/swagger-ui/index.html).
 
-Teste:
+No Actions, confira o SHA, o status `live` e `Deploy LIVE + HTTP health check OK`. No Render, compare o commit do deploy. O script não encerra com sucesso apenas ao solicitar a publicação: aguarda sua conclusão e valida a API com o MongoDB.
 
-```powershell
-ssh -i "$env:USERPROFILE\.ssh\voaaguia_deploy" USUARIO@IP_DO_SERVIDOR
-```
+## 8. Usar as evidências anexadas
 
-Em um ambiente com `ssh-keyscan` (por exemplo Git Bash/WSL), obtenha a linha de `known_hosts` usando `ssh-keyscan -H IP_DO_SERVIDOR`. **Antes de confiar nessa linha, confirme a fingerprint do servidor por meio de seu painel/provedor ou outro canal seguro**. Copie o conteúdo resultante (sem editar) para o secret `DEPLOY_KNOWN_HOSTS`.
+As cinco imagens já estão incorporadas ao [README](../README.md) e ao [relatório de evidências](EVIDENCIAS.md). Elas incluem `docker ps`, Swagger local, execuções verdes no Actions e Swagger dos dois ambientes Render. Mantenha os nomes dos arquivos para preservar os links. O PDF acrescenta o job de CI (p. 7), logs de staging/produção com saúde OK (p. 8–9) e dois bancos Atlas (p. 10).
 
-## 8. Crie o repositório e configure GitHub Actions
+As figuras incorporadas ao PDF permanecem como referência. Para ampliar a rastreabilidade, guarde os artefatos Maven e compare o SHA do deploy com o código entregue. A figura Atlas confirma a existência dos bancos; permissões de usuários, regras de rede e valores JWT não aparecem nas capturas e não devem ser declarados comprovados por elas.
 
-No GitHub, crie um repositório chamado `voaaguia-devops`, preferencialmente sem README inicial, pois o projeto já tem um. Se usar conta GitHub Free e precisar de `Environment secrets`, use repositório público **somente depois de revisar se o código não possui senhas/dados privados**. Recursos de environment em repositório privado exigem plano GitHub compatível: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments.
+## 9. Preparar a entrega
 
-Vá em `Settings > Environments`, crie exatamente dois environments: `staging` e `production`. Em **cada** um, configure os quatro **Secrets**:
+O [PDF técnico](Voa_Aguia_Relatorio_Tecnico_DevOps_Final.pdf) já está disponível, com integrantes, arquitetura, pipeline, capturas, desafios e checklist. Inclua-o na entrega junto da documentação Markdown. A página 12 declara um ZIP preparado, mas nenhum ZIP foi localizado nesta pasta; a [auditoria](REVISAO_DOCUMENTACAO.md) registra a conferência como pendente.
 
-- `DEPLOY_HOST`: IP ou DNS do servidor.
-- `DEPLOY_USER`: nome do usuário SSH no servidor.
-- `DEPLOY_SSH_KEY`: **conteúdo completo da chave PRIVADA** `voaaguia_deploy`, incluindo `BEGIN/END OPENSSH PRIVATE KEY`. Não a coloque no Git nem a envie em mensagens.
-- `DEPLOY_KNOWN_HOSTS`: linha confiável do `known_hosts` obtida acima.
+O ZIP deve conter `src`, `pom.xml`, Maven Wrapper (`mvnw`, `mvnw.cmd`, `.mvn/wrapper`), `Dockerfile`, `docker-compose.yml`, `.env.example`, `.github/workflows`, scripts, README, documentação e evidências. Exclua arquivos `.env` reais e suas variantes privadas, chaves, credenciais, `.git` e `target`. Preserve a identificação acadêmica fornecida. Confira o conteúdo e sua correspondência com a versão de código pretendida antes de enviar.
 
-Em **cada** environment, adicione uma **Variable** chamada `DEPLOY_DIR`:
+## Problemas comuns
 
-- staging: `/opt/voaaguia/staging`
-- production: `/opt/voaaguia/production`
-
-Se disponível no seu plano, configure `production` para exigir aprovação antes de executar, como boa prática adicional. Se não houver o servidor e essas credenciais, o pipeline poderá fazer build/testes, mas o deploy **não passará**.
-
-## 9. Suba o código e dispare as execuções
-
-Abra PowerShell na raiz do projeto:
-
-```powershell
-git init
-git add .
-git commit -m "DevOps: Voa Aguia CI/CD"
-git branch -M main
-git remote add origin https://github.com/SEU_USUARIO/voaaguia-devops.git
-git push -u origin main
-```
-
-**Importante:** execute os passos 6 a 8 **antes desse push** se deseja que o primeiro pipeline em `main` já implante em ambos os ambientes.
-
-Crie `develop` para demonstrar o fluxo de staging:
-
-```powershell
-git switch -c develop
-git push -u origin develop
-```
-
-Na guia `Actions` do GitHub, abra `Voa Aguia - CI/CD`. Em `develop`, confira `Build e testes` e `Deploy automatico - staging`. Em `main`, confirme `Build e testes`, `staging` e depois `production`. Para demonstrar alteração posterior, faça um pequeno ajuste no README em `develop`, commit e push; depois mescle para `main`:
-
-```powershell
-git switch main
-git merge develop
-git push origin main
-```
-
-Não precisa alterar o código apenas para gerar prints se o workflow inicial já rodou corretamente; use os jobs verdes reais.
-
-## 10. Confira staging e produção
-
-Do seu computador, abra um segundo PowerShell com encaminhamento SSH, deixando a sessão aberta:
-
-```powershell
-ssh -i "$env:USERPROFILE\.ssh\voaaguia_deploy" -L 8081:127.0.0.1:8081 -L 8082:127.0.0.1:8082 USUARIO@IP_DO_SERVIDOR
-```
-
-No navegador do computador, acesse:
-
-- **Staging:** http://localhost:8081/swagger-ui/index.html
-- **Produção:** http://localhost:8082/swagger-ui/index.html
-
-Essas URLs representam **ambientes remotos distintos no servidor**, acessados pelo túnel SSH — não são containers locais, apesar do `localhost` no navegador. O acesso de servidor a cada ambiente também pode ser verificado por SSH:
-
-```bash
-cd /opt/voaaguia/staging && docker compose ps
-cd /opt/voaaguia/production && docker compose ps
-```
-
-Se a porta 8081 ou 8082 já estiver ocupada no seu PC, use outras portas **do lado esquerdo** do túnel, por exemplo `-L 18081:127.0.0.1:8081`, e abra `http://localhost:18081/`.
-
-## 11. Capture as evidências exigidas
-
-Faça **prints reais** da execução:
-
-1. Terminal local com `docker compose ps` e API/MongoDB ativos.
-2. Swagger local.
-3. GitHub Actions: build e testes aprovados.
-4. GitHub Actions: deploy staging aprovado.
-5. Swagger staging no navegador com a URL visível.
-6. GitHub Actions: deploy produção aprovado.
-7. Swagger produção no navegador com a URL visível.
-8. `docker compose ps` de staging e produção no servidor.
-
-Adicione os prints em `docs/evidencias/`; no PDF/PPT, mostre pipeline (ferramenta, etapas e lógica), arquitetura `API ↔ MongoDB`, Dockerfile, Compose, comandos e imagem, capturas e **desafios reais + soluções**. Na primeira página, coloque **Voa Águia** e nome(s) dos integrante(s), não “Cidades ESG Inteligentes”.
-
-## 12. Faça o pacote de entrega
-
-No `README.md`, atualize a seção **Prints do funcionamento** com nomes/links das capturas reais e marque o checklist final somente após verificar cada item. Atualize a documentação PDF/PPT com as imagens, nomes, etapas e problemas reais da sua execução.
-
-Compacte a pasta contendo `src`, `pom.xml`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `.github/workflows`, scripts, `README.md` e documentação. **Não inclua** `.env`, chaves privadas, `target`, senhas nem dados reais. Abra o ZIP para conferir o conteúdo antes de enviar à plataforma; após o prazo ou correção, pode não ser possível substituir a entrega.
-
-## Problemas mais comuns
-
-| Sintoma | Como checar/corrigir |
+| Sintoma | Como conferir |
 |---|---|
-| `docker` não reconhecido | Instale e inicie Docker Desktop; reabra PowerShell |
-| Porta 8080 ocupada | Troque `HOST_PORT` no `.env` para 18080 |
-| API reiniciando | Veja `docker compose logs --tail=100 api`; confira `JWT_SECRET` (32+ bytes) e `SEED_PASSWORD` (12+ se seed ativo) |
-| Build/teste falha no CI | Abra job `Build e testes` e consulte logs; MongoDB deve estar healthy |
-| Deploy falha antes do SSH | Confira `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `DEPLOY_DIR` no environment correto |
-| `Permission denied` no SSH | Chave privada do secret deve corresponder à chave pública em `authorized_keys`; confira usuário/permissões |
-| `docker: permission denied` no servidor | Usuário de deploy precisa de permissão para usar Docker; consulte documentação Docker para pós-instalação |
-| Swagger remoto não abre | Veja jobs de deploy e `docker compose ps`; abra o túnel SSH; confirme `HOST_PORT` e variáveis diferentes |
-| `GEMINI_API_KEY` ausente | A API principal funciona, mas endpoints de IA podem responder 503 |
+| Docker indisponível | Inicie Docker Desktop e confirme `docker version` |
+| Porta 8080 ocupada | Altere `HOST_PORT` e a URL local |
+| API local reiniciando | Consulte logs; valide segredo JWT e senha de seed |
+| Testes não conectam ao banco | MongoDB de testes deve responder em `localhost:27017` |
+| Variável ausente no deploy | Confira Secrets/Variables do environment correto |
+| Banco indisponível no Render | Confira `MONGODB_URI`, usuário e lista de acesso Atlas |
+| Swagger abre, mas deploy falha | Confira `/healthz`, que também depende de MongoDB |
+| IA retorna 503 | Configure a chave se precisar demonstrar os endpoints de IA |

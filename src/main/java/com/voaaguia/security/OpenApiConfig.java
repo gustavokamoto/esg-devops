@@ -8,7 +8,7 @@ import org.springframework.context.annotation.*;
 @Configuration
 public class OpenApiConfig {
     @Bean OpenAPI documentation() {
-        return new OpenAPI().info(new Info().title("VoaÁguia - Sprint 2").version("2.0.0").description("Login/cadastro públicos. Demais operações exigem JWT; permissões por perfil são verificadas no backend."))
+        return new OpenAPI().info(new Info().title("VoaÁguia - Sprint 2").version("2.0.0").description("Login/cadastro e /healthz públicos. Demais operações de negócio exigem JWT; permissões por perfil são verificadas no backend."))
             .components(new Components().addSecuritySchemes("bearerAuth",new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")))
             .addSecurityItem(new SecurityRequirement().addList("bearerAuth"));
     }

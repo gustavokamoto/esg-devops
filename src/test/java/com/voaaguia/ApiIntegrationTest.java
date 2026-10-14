@@ -54,6 +54,23 @@ class ApiIntegrationTest {
         assertThat(call("GET","/reports/dashboard",operator,null).getStatusCode().value()).isEqualTo(403);
         assertThat(call("GET","/auth/me",operator,null).getBody()).doesNotContainKey("passwordHash");
     }
+    @Test void publicHealthAndOpenApiMatchSecurityRules() {
+        var health=http.getForEntity("/healthz",Map.class);
+        assertThat(health.getStatusCode().value()).isEqualTo(200);
+        assertThat(health.getBody()).containsEntry("status","UP").containsEntry("application","voaaguia");
+
+        var response=http.getForEntity("/v3/api-docs",Map.class);
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        var paths=(Map<String,Map<String,Map<String,Object>>>)response.getBody().get("paths");
+        for (var endpoint:List.of("/healthz","/api/auth/login","/api/auth/register")) {
+            String method=endpoint.equals("/healthz")?"get":"post";
+            assertThat((List<?>)paths.get(endpoint).get(method).get("security")).isEmpty();
+        }
+        // As operações protegidas continuam herdando a exigência global de JWT.
+        assertThat(response.getBody().get("security")).isEqualTo(List.of(Map.of("bearerAuth",List.of())));
+        assertThat(paths.get("/api/auth/me").get("get")).doesNotContainKey("security");
+        assertThat(call("GET","/auth/me",null,null).getStatusCode().value()).isEqualTo(401);
+    }
     @Test void registrationCannotEscalateRole() {
         var result=call("POST","/auth/register",null,Map.of("email","registered@test.local","password","Password12345!","name","Pessoa","department","Operação","role","LIDER"));
         assertThat(result.getStatusCode().value()).isEqualTo(201);
