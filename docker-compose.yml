@@ -1,5 +1,5 @@
-# Um unico Compose reutilizado em local, staging e producao.
-# Diferencie ambientes definindo COMPOSE_PROJECT_NAME, HOST_PORT e MONGO_DATABASE no .env de cada um.
+# Ambiente local: API Spring Boot e MongoDB em containers.
+# Staging e producao usam o Dockerfile no Render e MONGODB_URI do Atlas.
 name: ${COMPOSE_PROJECT_NAME:-voaaguia-local}
 services:
   mongo:

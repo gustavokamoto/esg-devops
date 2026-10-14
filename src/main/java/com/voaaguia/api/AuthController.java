@@ -2,6 +2,7 @@ package com.voaaguia.api;
 import com.voaaguia.service.AuthService;
 import com.voaaguia.api.Requests.*;
 import com.voaaguia.domain.User;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import jakarta.validation.Valid;
 import java.util.Map;
 import org.bson.Document;
@@ -14,7 +15,9 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
     private final AuthService auth; private final MongoTemplate mongo;
     public AuthController(AuthService auth, MongoTemplate mongo) { this.auth=auth; this.mongo=mongo; }
+    @SecurityRequirements
     @PostMapping("/login") public Map<String,Object> login(@Valid @RequestBody Login input) { return auth.login(input); }
+    @SecurityRequirements
     @PostMapping("/register") @ResponseStatus(org.springframework.http.HttpStatus.CREATED) public Map<String,Object> register(@Valid @RequestBody Register input) { return auth.register(input); }
     @GetMapping("/me") public User me(@AuthenticationPrincipal Jwt jwt) { return auth.user(jwt.getSubject()); }
     @PostMapping("/logout") @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT) public void logout(@AuthenticationPrincipal Jwt jwt) {
