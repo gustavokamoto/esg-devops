@@ -1,10 +1,10 @@
-name: Voa Aguia - CI/CD
+name: Voa Aguia - CI/CD (Render e Atlas)
 
 on:
   push:
-    branches: [main, develop]
+    branches: [develop, main]
   pull_request:
-    branches: [main, develop]
+    branches: [develop, main]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-test:
-    name: Build e testes (Java 17 + MongoDB)
+    name: Compilar, testar e construir imagem Docker
     runs-on: ubuntu-latest
     services:
       mongo:
@@ -25,7 +25,7 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
-      - name: Checkout do codigo
+      - name: Checkout
         uses: actions/checkout@v4
       - name: Preparar Java 17 e cache Maven
         uses: actions/setup-java@v4
@@ -33,78 +33,54 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - name: Build e testes reais com MongoDB
+      - name: Build e testes com MongoDB
         run: bash ./mvnw --batch-mode --no-transfer-progress clean verify
-      - name: Build da imagem Docker
+      - name: Build Docker
         run: docker build --tag voaaguia:${{ github.sha }} .
-      - name: Publicar relatórios de testes
+      - name: Relatorios dos testes
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: relatorios-testes
+          name: testes-${{ github.run_number }}
           path: target/surefire-reports/
           if-no-files-found: ignore
 
   staging:
-    name: Deploy automatico - staging
+    name: Deploy Render - staging
     needs: build-test
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     environment: staging
     concurrency:
-      group: deploy-staging
+      group: render-voaaguia-staging
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - name: Empacotar fonte para o servidor
-        run: tar --exclude='.git' --exclude='.env' --exclude='target' --exclude='*.zip' -czf "$RUNNER_TEMP/deploy.tar.gz" .
-      - name: Configurar acesso SSH
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Publicar o commit validado e aguardar Render LIVE
         env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-        run: |
-          set -eu
-          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
-          mkdir -p "$HOME/.ssh"
-          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/voaaguia_deploy_key"
-          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          chmod 700 "$HOME/.ssh"
-          chmod 600 "$HOME/.ssh/voaaguia_deploy_key" "$HOME/.ssh/known_hosts"
-      - name: Implantar no servidor de staging
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
-        run: bash scripts/deploy-ssh.sh "$RUNNER_TEMP/deploy.tar.gz"
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+          RENDER_PUBLIC_URL: ${{ vars.RENDER_PUBLIC_URL }}
+        run: bash scripts/render-deploy.sh
 
   production:
-    name: Deploy automatico - producao (apos staging)
-    needs: staging
+    name: Deploy Render - producao academica
+    needs: build-test
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     environment: production
     concurrency:
-      group: deploy-production
+      group: render-voaaguia-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - name: Empacotar fonte para o servidor
-        run: tar --exclude='.git' --exclude='.env' --exclude='target' --exclude='*.zip' -czf "$RUNNER_TEMP/deploy.tar.gz" .
-      - name: Configurar acesso SSH
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Publicar o commit validado e aguardar Render LIVE
         env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-        run: |
-          set -eu
-          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
-          mkdir -p "$HOME/.ssh"
-          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/voaaguia_deploy_key"
-          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          chmod 700 "$HOME/.ssh"
-          chmod 600 "$HOME/.ssh/voaaguia_deploy_key" "$HOME/.ssh/known_hosts"
-      - name: Implantar no servidor de producao
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
-        run: bash scripts/deploy-ssh.sh "$RUNNER_TEMP/deploy.tar.gz"
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+          RENDER_PUBLIC_URL: ${{ vars.RENDER_PUBLIC_URL }}
+        run: bash scripts/render-deploy.sh
