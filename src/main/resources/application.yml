@@ -28,3 +28,6 @@ app:
   seed-password: ${SEED_PASSWORD:}
   gemini-key: ${GEMINI_API_KEY:}
   gemini-model: ${GEMINI_MODEL:gemini-3.6-flash}
+springdoc:
+  api-docs:
+    path: /api-docs

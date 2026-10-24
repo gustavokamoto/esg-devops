@@ -37,7 +37,9 @@ public class SecurityConfig {
         var roles = new JwtGrantedAuthoritiesConverter(); roles.setAuthoritiesClaimName("role"); roles.setAuthorityPrefix("ROLE_");
         var converter = new JwtAuthenticationConverter(); converter.setJwtGrantedAuthoritiesConverter(roles);
         return http.csrf(c -> c.disable()).sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(a -> a.requestMatchers("/healthz", "/api/auth/login", "/api/auth/register", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll().anyRequest().authenticated())
+            // API aberta: sem token a requisição é anônima e recebe todos os perfis; com token valem as regras do perfil.
+            .authorizeHttpRequests(a -> a.anyRequest().permitAll())
+            .anonymous(a -> a.principal("anonimo").authorities("ROLE_OPERADOR", "ROLE_GESTOR", "ROLE_LIDER"))
             .oauth2ResourceServer(o -> o.jwt(j -> j.jwtAuthenticationConverter(converter))).build();
     }
 }

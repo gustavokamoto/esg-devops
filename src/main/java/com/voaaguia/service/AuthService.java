@@ -42,5 +42,7 @@ public class AuthService {
         var own=ideas.findByDeletedFalseOrderByCreatedAtDesc().stream().filter(i -> i.authorId.equals(u.id)).toList();
         u.ideasCount=own.size(); u.approvedIdeasCount=own.stream().filter(i -> i.everApproved).count(); u.points=u.ideasCount*10+u.approvedIdeasCount*50; return u;
     }
+    public User user(Jwt jwt) { return jwt==null?anonymous():user(jwt.getSubject()); }
+    private User anonymous() { var u=new User(); u.id="anonimo"; u.name="Anônimo"; u.role="LIDER"; u.department="Público"; return enrich(u); }
     public User user(String id) { return enrich(users.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Sessão inválida"))); }
 }
