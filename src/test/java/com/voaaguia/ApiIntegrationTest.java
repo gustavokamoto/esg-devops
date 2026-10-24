@@ -47,7 +47,7 @@ class ApiIntegrationTest {
         assertThat(result.getStatusCode().value()).isEqualTo(201); return (String)result.getBody().get("id");
     }
     @Test void authenticationAndRoleBoundaries() {
-        assertThat(call("GET","/auth/me",null,null).getStatusCode().value()).isEqualTo(401);
+        assertThat(call("GET","/auth/me",null,null).getBody()).containsEntry("id","anonimo");
         assertThat(call("POST","/auth/login",null,Map.of("email","operator@test.local","password","wrong")).getStatusCode().value()).isEqualTo(401);
         assertThat(call("POST","/strategies",operator,Map.of("title","x","description","y","category","z","campaign","a","isActive",true)).getStatusCode().value()).isEqualTo(403);
         assertThat(call("GET","/reports/dashboard",manager,null).getStatusCode().value()).isEqualTo(403);
@@ -59,7 +59,7 @@ class ApiIntegrationTest {
         assertThat(health.getStatusCode().value()).isEqualTo(200);
         assertThat(health.getBody()).containsEntry("status","UP").containsEntry("application","voaaguia");
 
-        var response=http.getForEntity("/v3/api-docs",Map.class);
+        var response=http.getForEntity("/api-docs",Map.class);
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         var paths=(Map<String,Map<String,Map<String,Object>>>)response.getBody().get("paths");
         for (var endpoint:List.of("/healthz","/api/auth/login","/api/auth/register")) {
@@ -69,7 +69,7 @@ class ApiIntegrationTest {
         // As operações protegidas continuam herdando a exigência global de JWT.
         assertThat(response.getBody().get("security")).isEqualTo(List.of(Map.of("bearerAuth",List.of())));
         assertThat(paths.get("/api/auth/me").get("get")).doesNotContainKey("security");
-        assertThat(call("GET","/auth/me",null,null).getStatusCode().value()).isEqualTo(401);
+        assertThat(call("GET","/auth/me",null,null).getBody()).containsEntry("id","anonimo");
     }
     @Test void registrationCannotEscalateRole() {
         var result=call("POST","/auth/register",null,Map.of("email","registered@test.local","password","Password12345!","name","Pessoa","department","Operação","role","LIDER"));

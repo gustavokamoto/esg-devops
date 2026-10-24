@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 public class InnovationController {
     private final InnovationService service; private final AuthService auth;
     public InnovationController(InnovationService service, AuthService auth) { this.service=service; this.auth=auth; }
-    private User user(Jwt jwt) { return auth.user(jwt.getSubject()); }
+    private User user(Jwt jwt) { return auth.user(jwt); }
     @GetMapping("/strategies") public List<Guideline> strategies() { return service.strategies(); }
     @GetMapping("/strategies/{id}") public Guideline strategy(@PathVariable String id) { return service.strategy(id); }
     @GetMapping("/strategies/{id}/history") public List<Revision> history(@PathVariable String id) { return service.history(id); }

@@ -19,8 +19,9 @@ public class AuthController {
     @PostMapping("/login") public Map<String,Object> login(@Valid @RequestBody Login input) { return auth.login(input); }
     @SecurityRequirements
     @PostMapping("/register") @ResponseStatus(org.springframework.http.HttpStatus.CREATED) public Map<String,Object> register(@Valid @RequestBody Register input) { return auth.register(input); }
-    @GetMapping("/me") public User me(@AuthenticationPrincipal Jwt jwt) { return auth.user(jwt.getSubject()); }
+    @GetMapping("/me") public User me(@AuthenticationPrincipal Jwt jwt) { return auth.user(jwt); }
     @PostMapping("/logout") @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT) public void logout(@AuthenticationPrincipal Jwt jwt) {
+        if(jwt==null) return;
         mongo.save(new Document("_id",jwt.getId()).append("expiresAt", java.util.Date.from(jwt.getExpiresAt())),"revoked_tokens");
     }
 }
